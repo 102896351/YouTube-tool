@@ -21,6 +21,11 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from yt_dlp import YoutubeDL
 
+try:
+    import snapyt_fallback
+except ImportError:
+    snapyt_fallback = None
+
 ALLOWED_ORIGINS = [
     "https://102896351.github.io",
     "http://localhost:8080",
@@ -141,14 +146,22 @@ def url_from_info(info: dict) -> str:
     return info.get("webpage_url") or info.get("original_url") or ""
 
 
-def _issue_token(url: str, fmt: str) -> str:
+def _issue_token(url: str, fmt: str, source: str = "ytdlp", extra: dict | None = None) -> str:
     token = uuid.uuid4().hex
-    _tokens[token] = {"url": url, "format": fmt, "expires": time.time() + TOKEN_TTL}
+    entry = {"url": url, "format": fmt, "expires": time.time() + TOKEN_TTL, "source": source}
+    if extra:
+        entry.update(extra)
+    _tokens[token] = entry
     # cheap cleanup
     now = time.time()
     for k in [k for k, v in _tokens.items() if v["expires"] < now]:
         _tokens.pop(k, None)
     return token
+
+
+def is_bot_block(exc: Exception) -> bool:
+    low = str(exc).lower()
+    return "sign in to confirm" in low or "not a bot" in low or "login_required" in low
 
 
 def download_to_temp(url: str, fmt: str, tmpdir: str) -> str:
@@ -178,29 +191,90 @@ async def validation_error(request: Request, exc: RequestValidationError):
     )
 
 
+def snapyt_formats(fallback: dict, base: str) -> list[dict]:
+    out = []
+    for f in fallback.get("formats") or []:
+        # Point straight at snapyt's own proxy endpoint: the browser streams
+        # the file directly, so our server / Cloudflare never has to relay a
+        # multi-hundred-MB download (which would time out).
+        out.append({
+            "id": f["id"],
+            "label": f["label"],
+            "ext": "mp4",
+            "filesize": f.get("size"),
+            "url": f["proxy_url"],
+        })
+    return out
+
+
 @app.post("/api/download")
 async def api_download(payload: DownloadRequest, request: Request):
     url = payload.url.strip()
     if not is_youtube_url(url):
         raise HTTPException(400, {"code": "BAD_URL", "message": "Please paste a valid YouTube video or Shorts link."})
+
+    base = (os.environ.get("PUBLIC_API_BASE") or str(request.base_url)).rstrip("/")
+
+    # Try our own yt-dlp first; if YouTube blocks our datacenter IP, fall back
+    # to snapyt.app's residential-proxied resolver.
+    info = None
     try:
         info = await run_in_threadpool(extract, url)
     except Exception as exc:
-        raise HTTPException(422, classify_error(exc))
+        if snapyt_fallback is None or not is_bot_block(exc):
+            raise HTTPException(422, classify_error(exc))
 
-    base = (os.environ.get("PUBLIC_API_BASE") or str(request.base_url)).rstrip("/")
-    formats = format_entries(info, base)
+    if info is not None:
+        formats = format_entries(info, base)
+        if formats:
+            return {"title": info.get("title") or "YouTube video", "formats": formats}
+
+    # fallback path
+    try:
+        fb = await run_in_threadpool(snapyt_fallback.resolve, url)
+    except Exception as exc:
+        raise HTTPException(422, {"code": "FALLBACK_FAILED", "message": "Could not read this video: %s" % str(exc)[:160]})
+    fb["source_url"] = url
+    formats = snapyt_formats(fb, base)
     if not formats:
         raise HTTPException(404, {"code": "NO_FORMATS", "message": "No downloadable format was returned for this video."})
-    return {"title": info.get("title") or "YouTube video", "formats": formats}
+    return {"title": fb.get("title") or "YouTube video", "formats": formats}
+
+
+def _safe_filename(name: str) -> str:
+    name = re.sub(r'[^\w.\- ]', '_', name or "video")
+    return name.strip() or "video"
 
 
 @app.get("/api/stream")
-async def api_stream(token: str, background_tasks: BackgroundTasks):
+async def api_stream(token: str, background_tasks: BackgroundTasks, request: Request):
     entry = _tokens.get(token)
     if not entry or entry["expires"] < time.time():
         raise HTTPException(410, {"code": "EXPIRED", "message": "This download link has expired. Please submit the URL again."})
     tmpdir = tempfile.mkdtemp(prefix="yttool-")
+
+    if entry.get("source") == "snapyt" and snapyt_fallback is not None:
+        # Relay the file through snapyt's endpoint so our server streams it.
+        fmt = str(entry.get("format") or "0")
+        filename = "youtube-%s.mp4" % fmt
+        try:
+            path = await run_in_threadpool(
+                snapyt_fallback.stream_file,
+                entry["proxy_url"],
+                entry.get("cookies") or {},
+                os.path.join(tmpdir, filename),
+            )
+        except Exception as exc:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            raise HTTPException(502, {"code": "PROXY_FAILED", "message": "The mirrored download failed: %s" % str(exc)[:160]})
+        background_tasks.add_task(shutil.rmtree, tmpdir, True)
+        return FileResponse(
+            path,
+            filename=filename,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": 'attachment; filename="%s"' % filename},
+        )
+
     try:
         path = await run_in_threadpool(download_to_temp, entry["url"], entry["format"], tmpdir)
     except Exception as exc:
