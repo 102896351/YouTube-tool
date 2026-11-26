@@ -122,6 +122,22 @@
     return ({ "video+audio": "Video + Audio", "video-only": "Video only", "audio-only": "Audio" })[kind] || "Download";
   }
 
+  /* The API already puts the size and "Recommended" in most labels, so avoid
+     appending them a second time in the quality dropdown. */
+  function formatText(f) {
+    var label = String(f.label || "Download").trim();
+    var size = f.size || f.filesize || "";
+    if (size && label.indexOf(size) === -1) label += " · " + size;
+    if (f.recommended && !/recommended/i.test(label)) label += " — Recommended";
+    return label;
+  }
+
+  function qualityOf(f) {
+    var m = String(f && f.label || "").match(/(\d+p)\s*(MP4|WEBM|M4A|Opus|AVI)/i);
+    if (m) return m[1] + " " + m[2];
+    return f && f.ext ? String(f.ext).toUpperCase() : "MP4";
+  }
+
   function renderResult(data) {
     var old = document.getElementById("ytx-local-result");
     if (old) old.remove();
@@ -143,35 +159,34 @@
     box.className = "ytpv";
 
     var comboOpts = combos.map(function (f) {
-      return '<option value="' + esc(f.url) + '" data-kind="video+audio" data-label="' + esc(f.label) + '"' +
-        (f === rec ? ' data-rec="1" selected' : '') + '>' + esc(f.label) + (f.size ? ' · ' + esc(f.size) : '') +
-        (f === rec ? ' — Recommended' : '') + '</option>';
+      return '<option value="' + esc(f.url) + '" data-kind="video+audio" data-label="' + esc(formatText(f)) + '"' +
+        (f === rec ? ' data-rec="1" selected' : '') + '>' + esc(formatText(f)) + '</option>';
     }).join("");
     var comboGroup = comboOpts ? '<optgroup label="🎬 Video + Audio (Ready to Download)">' + comboOpts + '</optgroup>' : "";
 
     var vidOpts = videos.map(function (f) {
-      return '<option value="' + esc(f.url) + '" data-kind="video-only" data-label="' + esc(f.label) + '">' +
-        esc(f.label) + (f.size ? ' · ' + esc(f.size) : '') + '</option>';
+      return '<option value="' + esc(f.url) + '" data-kind="video-only" data-label="' + esc(formatText(f)) + '">' +
+        esc(formatText(f)) + '</option>';
     }).join("");
     var vidGroup = vidOpts ? '<optgroup label="🎞️ Higher Quality Video — Combine with audio for sound">' + vidOpts + '</optgroup>' : "";
 
     var audOpts = audios.map(function (f) {
-      return '<option value="' + esc(f.url) + '" data-kind="audio-only" data-label="' + esc(f.label) + '">' +
-        esc(f.label) + (f.size ? ' · ' + esc(f.size) : '') + '</option>';
+      return '<option value="' + esc(f.url) + '" data-kind="audio-only" data-label="' + esc(formatText(f)) + '">' +
+        esc(formatText(f)) + '</option>';
     }).join("");
     var audGroup = audOpts ? '<optgroup label="🎵 Audio Only">' + audOpts + '</optgroup>' : "";
 
     var muxVidOpts = videos.map(function (f) {
-      return '<option value="' + esc(f.url) + '">' + esc(f.label) + (f.size ? ' · ' + esc(f.size) : '') + '</option>';
+      return '<option value="' + esc(f.url) + '">' + esc(formatText(f)) + '</option>';
     }).join("");
     var muxAudOpts = audios.map(function (f) {
-      return '<option value="' + esc(f.url) + '">' + esc(f.label) + (f.size ? ' · ' + esc(f.size) : '') + '</option>';
+      return '<option value="' + esc(f.url) + '">' + esc(formatText(f)) + '</option>';
     }).join("");
 
     var summary = "";
     if (rec) {
       summary = '<span class="ytpv-badge gold">Recommended</span>' +
-        '<span class="ytpv-badge blue">' + esc((rec.label || "MP4").split(" ")[0]) + '</span>' +
+        '<span class="ytpv-badge blue">' + esc(qualityOf(rec)) + '</span>' +
         (rec.size ? '<span class="ytpv-badge">' + esc(rec.size) + '</span>' : '') +
         '<span class="ytpv-badge ok">Video + Audio</span>';
     }
