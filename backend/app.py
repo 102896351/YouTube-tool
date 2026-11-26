@@ -61,8 +61,8 @@ def classify_error(exc: Exception) -> dict:
             "code": "AGE_RESTRICTED",
             "message": "This video is age-restricted and needs a signed-in YouTube account.",
         }
-    if "video unavailable" in low or "has been removed" in low or "not available" in low:
-        return {"code": "UNAVAILABLE", "message": "This video is unavailable or has been removed."}
+    if "unavailable" in low or "has been removed" in low or "not available" in low or "does not exist" in low:
+        return {"code": "UNAVAILABLE", "message": "This video does not exist, is private, or has been removed. Check the link and try another video."}
     if "members-only" in low or "member" in low and "only" in low:
         return {"code": "MEMBERS_ONLY", "message": "This video is for channel members only."}
     return {"code": "EXTRACT_FAILED", "message": "Could not read this video: %s" % msg[:160]}
