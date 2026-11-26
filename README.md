@@ -13,9 +13,9 @@ Removed from the original: Google Analytics, ad-network loaders, ShareThis, doma
 
 ## Enable real downloads
 
-This repository is static; GitHub Pages cannot run a media conversion backend. The Download button validates the URL and then calls your own API if configured.
+This repository is static; GitHub Pages cannot run a media conversion backend. A ready-to-deploy FastAPI + yt-dlp service lives in [`backend/`](backend/README.md). The Download button validates the URL and then calls your API if configured.
 
-Add this before `app.js` in `index.html` (or create `site.config.js` and include it first):
+Copy `site.config.example.js` to `site.config.js`, fill in your API URL, and uncomment its `<script>` tag in `index.html`. Or add this before `app.js`:
 
 ```html
 <script>window.YOUTUBE_TOOL_API = "https://your-backend.example.com/api/download";</script>
