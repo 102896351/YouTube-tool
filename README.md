@@ -15,7 +15,7 @@ Removed from the original: Google Analytics, ad-network loaders, ShareThis, doma
 
 This repository is static; GitHub Pages cannot run a media conversion backend. A ready-to-deploy FastAPI + yt-dlp service lives in [`backend/`](backend/README.md). The Download button validates the URL and then calls your API if configured.
 
-Copy `site.config.example.js` to `site.config.js`, fill in your API URL, and uncomment its `<script>` tag in `index.html`. Or add this before `app.js`:
+`site.config.js` currently points to a temporary endpoint on `api.aiartspell.art` (`/yt-api/`) that proxies to the self-hosted backend. Replace that URL when you move the API to its own domain. To point at a different API, edit the file or add this before `app.js`:
 
 ```html
 <script>window.YOUTUBE_TOOL_API = "https://your-backend.example.com/api/download";</script>
