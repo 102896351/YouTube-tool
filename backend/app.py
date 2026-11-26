@@ -186,7 +186,7 @@ async def api_download(payload: DownloadRequest, request: Request):
     try:
         info = await run_in_threadpool(extract, url)
     except Exception as exc:
-        raise HTTPException(502, classify_error(exc))
+        raise HTTPException(422, classify_error(exc))
 
     base = (os.environ.get("PUBLIC_API_BASE") or str(request.base_url)).rstrip("/")
     formats = format_entries(info, base)
@@ -205,7 +205,7 @@ async def api_stream(token: str, background_tasks: BackgroundTasks):
         path = await run_in_threadpool(download_to_temp, entry["url"], entry["format"], tmpdir)
     except Exception as exc:
         shutil.rmtree(tmpdir, ignore_errors=True)
-        raise HTTPException(502, classify_error(exc))
+        raise HTTPException(422, classify_error(exc))
     background_tasks.add_task(shutil.rmtree, tmpdir, True)
     filename = os.path.basename(path)
     return FileResponse(
