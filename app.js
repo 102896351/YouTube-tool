@@ -158,12 +158,18 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: raw })
     }).then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
+      return r.json().catch(function () { return null; }).then(function (body) {
+        if (!r.ok) {
+          var d = body && body.detail;
+          var msg = (d && d.message) || ("Request failed (HTTP " + r.status + ").");
+          throw new Error(msg);
+        }
+        return body;
+      });
     }).then(function (data) {
       renderResult(data);
     }).catch(function (err) {
-      showError("Network error: " + err.message);
+      showError(err.message || "Network error.");
     }).finally(function () {
       busy = false;
       submit.disabled = false;
