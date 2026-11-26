@@ -15,8 +15,9 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.concurrency import run_in_threadpool
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from yt_dlp import YoutubeDL
 
@@ -42,6 +43,29 @@ _tokens = {}  # token -> {"url": ..., "format": ..., "expires": ...}
 class DownloadRequest(BaseModel):
     url: str
     format: str | None = None
+
+
+def classify_error(exc: Exception) -> dict:
+    """Turn raw yt-dlp errors into a stable code + a human-readable message."""
+    msg = str(exc)
+    low = msg.lower()
+    if "sign in to confirm" in low or "not a bot" in low or "login_required" in low:
+        return {
+            "code": "LOGIN_REQUIRED",
+            "message": "YouTube is asking for a sign-in on this video and blocks automatic downloads. Please try a different public video.",
+        }
+    if "private video" in low or "this video is private" in low:
+        return {"code": "PRIVATE", "message": "This is a private video and cannot be downloaded."}
+    if "age" in low and ("confirm" in low or "restrict" in low):
+        return {
+            "code": "AGE_RESTRICTED",
+            "message": "This video is age-restricted and needs a signed-in YouTube account.",
+        }
+    if "video unavailable" in low or "has been removed" in low or "not available" in low:
+        return {"code": "UNAVAILABLE", "message": "This video is unavailable or has been removed."}
+    if "members-only" in low or "member" in low and "only" in low:
+        return {"code": "MEMBERS_ONLY", "message": "This video is for channel members only."}
+    return {"code": "EXTRACT_FAILED", "message": "Could not read this video: %s" % msg[:160]}
 
 
 def is_youtube_url(raw: str) -> bool:
@@ -146,20 +170,28 @@ def download_to_temp(url: str, fmt: str, tmpdir: str) -> str:
         return ydl.prepare_filename(info)
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=400,
+        content={"detail": {"code": "BAD_REQUEST", "message": "Please paste a valid YouTube link."}},
+    )
+
+
 @app.post("/api/download")
 async def api_download(payload: DownloadRequest, request: Request):
     url = payload.url.strip()
     if not is_youtube_url(url):
-        raise HTTPException(400, "Please paste a valid YouTube video or Shorts link.")
+        raise HTTPException(400, {"code": "BAD_URL", "message": "Please paste a valid YouTube video or Shorts link."})
     try:
         info = await run_in_threadpool(extract, url)
     except Exception as exc:
-        raise HTTPException(502, "Could not read this video: %s" % str(exc)[:200])
+        raise HTTPException(502, classify_error(exc))
 
     base = (os.environ.get("PUBLIC_API_BASE") or str(request.base_url)).rstrip("/")
     formats = format_entries(info, base)
     if not formats:
-        raise HTTPException(404, "No downloadable format was returned for this video.")
+        raise HTTPException(404, {"code": "NO_FORMATS", "message": "No downloadable format was returned for this video."})
     return {"title": info.get("title") or "YouTube video", "formats": formats}
 
 
@@ -167,13 +199,13 @@ async def api_download(payload: DownloadRequest, request: Request):
 async def api_stream(token: str, background_tasks: BackgroundTasks):
     entry = _tokens.get(token)
     if not entry or entry["expires"] < time.time():
-        raise HTTPException(410, "This download link has expired. Please submit the URL again.")
+        raise HTTPException(410, {"code": "EXPIRED", "message": "This download link has expired. Please submit the URL again."})
     tmpdir = tempfile.mkdtemp(prefix="yttool-")
     try:
         path = await run_in_threadpool(download_to_temp, entry["url"], entry["format"], tmpdir)
     except Exception as exc:
         shutil.rmtree(tmpdir, ignore_errors=True)
-        raise HTTPException(502, "Download failed: %s" % str(exc)[:200])
+        raise HTTPException(502, classify_error(exc))
     background_tasks.add_task(shutil.rmtree, tmpdir, True)
     filename = os.path.basename(path)
     return FileResponse(
