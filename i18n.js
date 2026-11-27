@@ -28,6 +28,13 @@
     var nameEl = active && active.querySelector('span');
     var topEl = document.querySelector('#menu-item-156 > a span');
     if (nameEl && topEl) topEl.textContent = nameEl.textContent;
+    // The toggle's flag is a hard-coded US flag in the mirrored markup,
+    // so swap in the active language's own flag image from the dropdown.
+    var topFlag = document.querySelector('#menu-item-156 > a img');
+    var activeFlag = active && active.querySelector('img');
+    if (topFlag && activeFlag && activeFlag.getAttribute('src')) {
+      topFlag.setAttribute('src', activeFlag.getAttribute('src'));
+    }
     if (active) document.documentElement.lang = active.getAttribute('lang') || lang;
     var items = document.querySelectorAll('.lang-item');
     for (var j = 0; j < items.length; j++) items[j].classList.remove('current-lang', 'current_page_item');
