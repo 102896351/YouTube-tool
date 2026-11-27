@@ -258,6 +258,7 @@
 
     /* scroll the result into view on narrow screens */
     try { box.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+    if (window.YTI18n && window.YTI18n.apply) window.YTI18n.apply();
   }
 
   function wirePanel(box, ctx) {
