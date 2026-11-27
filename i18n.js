@@ -134,7 +134,7 @@
       });
     }
 
-    // Browser tab title ("YouTube Video Downloader — SnapYT")
+    // Browser tab title ("YouTube Video Downloader — 视频下载器")
     var titleKey = document.title;
     if (dict[titleKey]) document.title = dict[titleKey];
     else {
