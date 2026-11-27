@@ -1,4 +1,4 @@
-/* YouTube-tool — local front-end behaviour for the static SnapYT mirror.
+/* YouTube-tool — local front-end behaviour for the static 视频下载器 mirror.
  *
  * The original page talks to a WordPress admin-ajax endpoint with a nonce.
  * A static GitHub Pages site has no backend, so this file keeps the whole UI
