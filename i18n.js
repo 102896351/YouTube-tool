@@ -1,9 +1,46 @@
 /* Applies translations to the visible UI. Hand-curated strings take priority
    over the original-site dictionary (which only covers SEO long-form text). */
 (function () {
+  var STORAGE_KEY = 'yttool_lang';
+
   function getLang() {
     var m = new URLSearchParams(window.location.search).get('lang');
-    return m ? m.toLowerCase() : '';
+    if (m) return m.toLowerCase();
+    // No ?lang= param (e.g. after clicking an internal nav link): reuse the
+    // language the visitor picked earlier so it persists across pages.
+    try {
+      var saved = window.localStorage.getItem(STORAGE_KEY);
+      if (saved) return saved.toLowerCase();
+    } catch (e) {}
+    return '';
+  }
+
+  function rememberLang(lang) {
+    // Only remember an explicit choice carried in the URL, so a fresh visitor
+    // still sees the default English site.
+    if (new URLSearchParams(window.location.search).get('lang')) {
+      try { window.localStorage.setItem(STORAGE_KEY, lang); } catch (e) {}
+    }
+  }
+
+  // Carry the active language on internal links (nav, footer, etc.) so a full
+  // page navigation keeps the same language. The language switcher itself is
+  // handled separately in setMenuState.
+  function tagInternalLinks(lang) {
+    if (!lang || lang === 'en') return;
+    var links = document.querySelectorAll('a[href]');
+    for (var i = 0; i < links.length; i++) {
+      var a = links[i];
+      if (a.closest('.lang-item')) continue;
+      var href = a.getAttribute('href') || '';
+      if (!href || href.charAt(0) === '#') continue;
+      var u;
+      try { u = new URL(href, window.location.href); } catch (e) { continue; }
+      if (u.origin !== window.location.origin) continue;
+      if (u.searchParams.has('lang')) continue;
+      u.searchParams.set('lang', lang);
+      a.setAttribute('href', u.pathname + u.search + u.hash);
+    }
   }
 
   function activeDict(lang) {
@@ -57,10 +94,12 @@
 
   function apply() {
     var lang = getLang();
+    if (lang) rememberLang(lang);
     if (!lang || lang === 'en') return;
     var dict = activeDict(lang);
     if (!Object.keys(dict).length) return;
     setMenuState(lang);
+    tagInternalLinks(lang);
 
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode: function (node) {
